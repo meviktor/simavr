@@ -5,6 +5,7 @@ AVR_MCU(F_CPU, "atmega128");
 
 #include <avr/io.h>
 #include "avr_lcd.h"
+#include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
 #define	__AVR_ATMEGA128__	1
@@ -13,8 +14,8 @@ AVR_MCU(F_CPU, "atmega128");
 #define LINE_CAPACITY 16
 
 unsigned char data;
-unsigned char lineBuff1[LINE_CAPACITY];
-unsigned char lineBuff2[LINE_CAPACITY];
+unsigned char lineBuff1[LINE_CAPACITY + 1];
+//unsigned char lineBuff2[LINE_CAPACITY];
 bool cursorAbove;
 
 void Delay(unsigned int b)
@@ -90,7 +91,7 @@ void LCDSendChar(unsigned char character)
 void LCDSendString(char *stirngToSend)
 {
 	int index;
-	for(int index = 0; index < strlen(stirngToSend); index++)
+	for(index = 0; index < strlen(stirngToSend); index++)
         LCDSendChar(stirngToSend[index]);
 	while(index < LINE_CAPACITY){
 		LCDSendChar(' ');
@@ -174,10 +175,10 @@ void TryUnlockButtons() {
 #define CHOOSEWORD_UI_MIN_ROWINDEX 	0
 #define CHOOSEWORD_UI_MAX_ROWINDEX 	2
 #define CHOOSEWORD_UI_MIN_COLINDEX 	1
-#define CHOOSEWORD_UI_MAX_COLINDEX 	26
+#define CHOOSEWORD_UI_MAX_COLINDEX 	27
 
 #define CHOSEN_WORD_MAX_LENGTH 10
-unsigned char chosenWord[CHOSEN_WORD_MAX_LENGTH];
+unsigned char chosenWord[CHOSEN_WORD_MAX_LENGTH + 1];
 unsigned int letterSelected;
 
 typedef struct {
@@ -197,7 +198,7 @@ void SetDisplayContent(char *aboveLine, char *belowLine){
 		LCDSendCommand(DD_RAM_ADDR);
 		LCDSendString(aboveLine);
 	}
-	if(!strlen(belowLine)){
+	if(strlen(belowLine)){
 		LCDSendCommand(DD_RAM_ADDR2);
 		LCDSendString(belowLine);
 	}
@@ -212,24 +213,28 @@ void SetLineContent(char *lineContent, bool aboveLine){
 
 void DrawLetterChooserSection(){
 	int index = 0;
-	while(index < LINE_CAPACITY - 1){ // cursor needs a cell position as well
-		if(index == cursorPosition.col % LINE_CAPACITY && cursorPosition.row == 0){ // first row must be selected
+	int cursorAdded = 0;
+	while(index < LINE_CAPACITY){ // cursor needs a cell position as well
+		if(index == (cursorPosition.col % LINE_CAPACITY) && cursorPosition.row == 0){ // first row must be selected
 			lineBuff1[index] = CURSOR_CHAR;
+			cursorAdded = 1;
 		}
 		else{
 			lineBuff1[index] = 
 				// cursor is on the first part of the alphabet or not
-				(cursorPosition.col < LINE_CAPACITY - 1) ? LETTERS_FIRST[index++] : (index < srtlen(LETTERS_SECOND) ? LETTERS_SECOND[index++] : ' ');
+				(cursorPosition.col < LINE_CAPACITY) ? LETTERS_FIRST[index - cursorAdded] : ((index - cursorAdded) < strlen(LETTERS_SECOND) ? LETTERS_SECOND[index - cursorAdded] : ' ');
 		}
+		index = index + 1;
 	}
+	lineBuff1[index] = '\0';
 	// always showing in the line above
 	SetLineContent(lineBuff1, true);
 }
 
 void DrawChosenWordSection(){
-	strcpy(lineBuff1, chosenword);
+	strcpy(lineBuff1, chosenWord);
 
-	int index = srtlen(lineBuff1);
+	int index = strlen(lineBuff1);
 	if(cursorPosition.row == 1){
 		lineBuff1[index++] = CURSOR_CHAR;
 	}
@@ -243,7 +248,7 @@ void DrawChosenWordSection(){
 void DrawOK(){
 	strcpy(lineBuff1, "OK");
 
-	int index = srtlen(lineBuff1);
+	int index = strlen(lineBuff1);
 	lineBuff1[index++] = CURSOR_CHAR;
 	while(index < LINE_CAPACITY){
 		lineBuff1[index++] = ' ';
@@ -255,25 +260,35 @@ void DrawOK(){
 void ReDrawChooseWordUI(){
 	// if we are not at the bottom row, show letter chooser
 	if(cursorPosition.row < CHOOSEWORD_UI_MAX_ROWINDEX){
-		DrawLetterChooser(cursorPosition);
+		//SetLineContent("0", true);
+		DrawLetterChooserSection();
 	}
 	// show the word itself
 	DrawChosenWordSection();
+	//SetLineContent("1", cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX);
 	// if we are at the bottom line, show OK option to accept the word
-	if(cursorPosition.row == CHOOSEWORD_UI_MIN_ROWINDEX){
+	if(cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX){
 		DrawOK();
 	}
 }
 
 interaction HandleChooseWordBtnPress(){
 	interaction userInteraction;
-	int pressedBtn = GetPressedButton();
+
+	int pressedBtn = BUTTON_NONE;
+	while((pressedBtn = GetPressedButton()) == BUTTON_NONE)
+		TryUnlockButtons();
+
 	switch(pressedBtn){
 		case BUTTON_RIGHT:
-			cursorPosition.col = cursorPosition.col == CHOOSEWORD_UI_MAX_COLINDEX ? cursorPosition.col : cursorPosition.col + 1;
+			cursorPosition.col = cursorPosition.col == CHOOSEWORD_UI_MAX_COLINDEX ? 
+				cursorPosition.col : 
+				(cursorPosition.col + 1) == LINE_CAPACITY ? LINE_CAPACITY + 1 : (cursorPosition.col + 1);
 			break;
 		case BUTTON_LEFT:
-			cursorPosition.col = cursorPosition.col == CHOOSEWORD_UI_MIN_COLINDEX ? cursorPosition.col : cursorPosition.col - 1;
+			cursorPosition.col = cursorPosition.col == CHOOSEWORD_UI_MIN_COLINDEX ? 
+				cursorPosition.col : 
+				(cursorPosition.col - 1) == LINE_CAPACITY ? LINE_CAPACITY - 1 : (cursorPosition.col - 1);
 			break;
 		case BUTTON_UP:
 			cursorPosition.row = cursorPosition.row == CHOOSEWORD_UI_MIN_ROWINDEX ? cursorPosition.row : cursorPosition.row - 1;
@@ -282,12 +297,9 @@ interaction HandleChooseWordBtnPress(){
 			cursorPosition.row = cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX ? cursorPosition.row : cursorPosition.row + 1;
 			break;
 	}
-	if(pressedBtn != BUTTON_CENTER && pressedBtn != BUTTON_NONE){
+
+	if(pressedBtn != BUTTON_CENTER){
 		userInteraction.updateUI = true;
-		userInteraction.wordChosen = false;
-	}
-	else if(pressedBtn == BUTTON_NONE){
-		userInteraction.updateUI = false;
 		userInteraction.wordChosen = false;
 	}
 	else{
@@ -296,21 +308,26 @@ interaction HandleChooseWordBtnPress(){
 			userInteraction.updateUI = false;
 			userInteraction.wordChosen = true;
 		}
-		// standing on row of the chosen word
+		// standing on row of the chosen word or letter chooser
 		else{
 			userInteraction.updateUI = true;
 			userInteraction.wordChosen = false;
 			// standing on letter chooser
-			if(cursorPosition.row == CHOOSEWORD_UI_MIN_ROWINDEX){
+			if(cursorPosition.row == CHOOSEWORD_UI_MIN_ROWINDEX && letterSelected <= CHOSEN_WORD_MAX_LENGTH){
 				// the cursor points always the letter on the left of the cursor (having index lower by one)
-				chosenWord[letterSelected++] = (cursorPosition.col < LINE_CAPACITY - 1) ? LETTERS_FIRST[cursorPosition.col - 1 : LETTERS_SECOND[cursorPosition.col - 1];
+				chosenWord[letterSelected] = (cursorPosition.col < LINE_CAPACITY) ?
+					LETTERS_FIRST[cursorPosition.col - 1] : LETTERS_SECOND[cursorPosition.col % LINE_CAPACITY - 1];
+				letterSelected = letterSelected + 1;
 			}
+			// standing on the row of the chosen word
 			else{
 				// deleting last letter
-				chosenWord[letterSelected--] = "\0";
+				chosenWord[letterSelected] = '\0';
+				letterSelected = letterSelected > 0 ? letterSelected - 1 : 0;
 			}
 		}
 	}
+
 	return userInteraction;
 }
 
@@ -328,6 +345,9 @@ void ChooseWord(){
 			ReDrawChooseWordUI();
 		}
 	}
+	chosenWord[letterSelected] = '\0';
+
+	SetDisplayContent("Step out from", "while ChooseWord");
 }
 
 int main()
@@ -335,14 +355,16 @@ int main()
 	PortInit();
 	LCDInit();
 	
-	SetLineContent("Hangman game", true);
-	SetLineContent("by Viktor", false);
+	SetDisplayContent("Hangman game", "by Viktor");
 	// press center button to start
 	while (GetPressedButton() != BUTTON_CENTER)
 			TryUnlockButtons();
 
 	while(1){
 		ChooseWord();
+		SetDisplayContent("Word chosen is:", chosenWord);
+		while (GetPressedButton() != BUTTON_CENTER)
+			TryUnlockButtons();
 	}
 	
 	return 0;

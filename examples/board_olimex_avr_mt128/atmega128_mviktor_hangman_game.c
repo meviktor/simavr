@@ -260,12 +260,10 @@ void DrawOK(){
 void ReDrawChooseWordUI(){
 	// if we are not at the bottom row, show letter chooser
 	if(cursorPosition.row < CHOOSEWORD_UI_MAX_ROWINDEX){
-		//SetLineContent("0", true);
 		DrawLetterChooserSection();
 	}
 	// show the word itself
 	DrawChosenWordSection();
-	//SetLineContent("1", cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX);
 	// if we are at the bottom line, show OK option to accept the word
 	if(cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX){
 		DrawOK();
@@ -313,17 +311,19 @@ interaction HandleChooseWordBtnPress(){
 			userInteraction.updateUI = true;
 			userInteraction.wordChosen = false;
 			// standing on letter chooser
-			if(cursorPosition.row == CHOOSEWORD_UI_MIN_ROWINDEX && letterSelected <= CHOSEN_WORD_MAX_LENGTH){
-				// the cursor points always the letter on the left of the cursor (having index lower by one)
-				chosenWord[letterSelected] = (cursorPosition.col < LINE_CAPACITY) ?
-					LETTERS_FIRST[cursorPosition.col - 1] : LETTERS_SECOND[cursorPosition.col % LINE_CAPACITY - 1];
-				letterSelected = letterSelected + 1;
+			if(cursorPosition.row == CHOOSEWORD_UI_MIN_ROWINDEX){
+				if(letterSelected < CHOSEN_WORD_MAX_LENGTH){
+					// the cursor points always the letter on the left of the cursor (having index lower by one)
+					chosenWord[letterSelected] = 
+						(cursorPosition.col < LINE_CAPACITY) ? LETTERS_FIRST[cursorPosition.col - 1] : LETTERS_SECOND[cursorPosition.col % LINE_CAPACITY - 1];
+					letterSelected = letterSelected + 1;
+				}
 			}
 			// standing on the row of the chosen word
 			else{
 				// deleting last letter
-				chosenWord[letterSelected] = '\0';
 				letterSelected = letterSelected > 0 ? letterSelected - 1 : 0;
+				chosenWord[letterSelected] = '\0';	
 			}
 		}
 	}
@@ -335,6 +335,7 @@ void ChooseWord(){
 	cursorPosition.col = 1;
 	cursorPosition.row = 0;
 	letterSelected = 0;
+	chosenWord[letterSelected] = '\0';
 
 	ReDrawChooseWordUI();
 
@@ -346,8 +347,6 @@ void ChooseWord(){
 		}
 	}
 	chosenWord[letterSelected] = '\0';
-
-	SetDisplayContent("Step out from", "while ChooseWord");
 }
 
 int main()

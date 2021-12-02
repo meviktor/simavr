@@ -88,14 +88,16 @@ void LCDSendChar(unsigned char character)
 	EPulse();                              //pulse to set d4-d7 bits
 }
 
-void LCDSendString(char *stirngToSend)
+void LCDSendString(char *stirngToSend, bool fillSpaces)
 {
 	int index;
 	for(index = 0; index < strlen(stirngToSend); index++)
         LCDSendChar(stirngToSend[index]);
-	while(index < LINE_CAPACITY){
-		LCDSendChar(' ');
-		index++;
+	if(fillSpaces){
+		while(index < LINE_CAPACITY){
+			LCDSendChar(' ');
+			index++;
+		}
 	}
 }
 
@@ -123,13 +125,13 @@ int GetPressedButton() {
 	// right
 	if (!(PINA & 0b00000001) & !buttonPressed) { 
 		buttonPressed = true;
-		return BUTTON_RIGHT;
+		return BUTTON_UP;
 	}
 
 	// up
 	if (!(PINA & 0b00000010) & !buttonPressed) {
 		buttonPressed = true;
-		return BUTTON_UP;
+		return BUTTON_LEFT;
 	}
 
 	// center
@@ -141,13 +143,13 @@ int GetPressedButton() {
 	// down
 	if (!(PINA & 0b00001000) & !buttonPressed) {
 		buttonPressed = true;
-		return BUTTON_DOWN;
+		return BUTTON_RIGHT;
 	}
 
 	// left
 	if (!(PINA & 0b00010000) & !buttonPressed) {
 		buttonPressed = true;
-		return BUTTON_LEFT;
+		return BUTTON_DOWN;
 	}
 
 	return BUTTON_NONE;
@@ -172,7 +174,9 @@ void TryUnlockButtons() {
 // 0 1 2 3 4 5 6 7 8 9 10 11 12 |13 14 15 16 17 18 19 20 21 22 23 24 25
 #define LETTERS_FIRST 		"ABCDEFGHIJKLM"
 #define LETTERS_SECOND 		"NOPQRSTUVWXYZ"
-#define CURSOR_CHAR 		'*'
+#define CURSOR_CHAR 		4
+#define UP_ARROW_CHAR 		5
+#define DOWN_ARROW_CHAR 	6
 #define CHOOSEWORD_UI_MIN_ROWINDEX 	0
 #define CHOOSEWORD_UI_MAX_ROWINDEX 	2
 #define CHOOSEWORD_UI_MIN_COLINDEX 	1
@@ -183,7 +187,7 @@ void TryUnlockButtons() {
 unsigned char chosenWord[CHOSEN_WORD_MAX_LENGTH + 1];
 unsigned int letterSelected;
 
-#define MAX_GUESS_ATTEMPTS 10
+#define MAX_BAD_GUESS_ATTEMPTS 10
 #define GAME_NOT_OVER_YET 0
 #define GAME_OVER_WON 1
 #define GAME_OVER_LOST 2
@@ -204,6 +208,10 @@ typedef struct {
 	int gameState;
 } interaction;
 
+int BadGuesses(){
+	return numberOfGuesses - (int)strlen(goodGuesses);
+}
+
 void WaitForBtnPress(int buttonCode){
 	while (GetPressedButton() != buttonCode)
 			TryUnlockButtons();
@@ -213,18 +221,18 @@ void SetDisplayContent(char *aboveLine, char *belowLine){
 	LCDSendCommand(CLR_DISP);
 	if(strlen(aboveLine)){
 		LCDSendCommand(DD_RAM_ADDR);
-		LCDSendString(aboveLine);
+		LCDSendString(aboveLine, true);
 	}
 	if(strlen(belowLine)){
 		LCDSendCommand(DD_RAM_ADDR2);
-		LCDSendString(belowLine);
+		LCDSendString(belowLine, true);
 	}
 }
 
-void SetLineContent(char *lineContent, bool aboveLine){
+void SetLineContent(char *lineContent, bool aboveLine, bool fillSpaces){
 	if(strlen(lineContent)){
 		LCDSendCommand(aboveLine ? DD_RAM_ADDR : DD_RAM_ADDR2);
-		LCDSendString(lineContent);
+		LCDSendString(lineContent, fillSpaces);
 	}
 }
 
@@ -245,11 +253,23 @@ void DrawLetterChooserSection(){
 	}
 	lineBuff1[index] = '\0';
 	// always showing in the line above
-	SetLineContent(lineBuff1, true);
+	SetLineContent(lineBuff1, true, false);
+}
 
-	// TODO: dont forget to delete this one!
-	LCDSendCommand(DD_RAM_ADDR + 15);
-	LCDSendChar((char)(cursorPosition.col + 64));
+unsigned char CUSTOM_POINTER_ARROW[8] = { 0b00000, 0b00100, 0b01000, 0b11111, 0b01000, 0b00100, 0b00000, 0b00000 };
+unsigned char CUSTOM_UP_ARROW[8] = { 0b00000, 0b00100, 0b01110, 0b10101, 0b00100, 0b00100, 0b00100, 0b00000 };
+unsigned char CUSTOM_DOWN_ARROW[8] = { 0b00000, 0b00100, 0b00100, 0b00100, 0b10101, 0b01110, 0b00100, 0b00000 };
+
+void InitCustomArrows(){
+	LCDSendCommand(0x40 + 32); // CGRAM
+	// characters with code 4, 5, 6
+	int j;
+	for(j = 0; j < 8; j++)
+		LCDSendChar(CUSTOM_POINTER_ARROW[j]);
+	for(j = 0; j < 8; j++)
+		LCDSendChar(CUSTOM_UP_ARROW[j]);
+	for(j = 0; j < 8; j++)
+		LCDSendChar(CUSTOM_DOWN_ARROW[j]);
 }
 
 void DrawChosenWordSection(){
@@ -263,7 +283,16 @@ void DrawChosenWordSection(){
 		lineBuff1[index++] = ' ';
 	}
 	// showing in the row above if we are all the the way down, in the bottom row otherwise
-	SetLineContent(lineBuff1, cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX); 
+	SetLineContent(lineBuff1, cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX, true);
+
+	LCDSendCommand(cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX ? DD_RAM_ADDR + 15 : DD_RAM_ADDR2 + 15);
+	LCDSendChar(cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX ? UP_ARROW_CHAR : DOWN_ARROW_CHAR);
+
+	// The last two cells of the letter chooser section is not modified, so unused arrows stays there sometimes
+	if(cursorPosition.row != CHOOSEWORD_UI_MAX_ROWINDEX){
+		LCDSendCommand(DD_RAM_ADDR + 15);
+		LCDSendChar(' ');
+	}
 }
 
 void DrawOK(){
@@ -275,7 +304,7 @@ void DrawOK(){
 		lineBuff1[index++] = ' ';
 	}
 	// always showing in the bottom row
-	SetLineContent(lineBuff1, false);
+	SetLineContent(lineBuff1, false, true);
 }
 
 void ReDrawChooseWordUI(){
@@ -325,7 +354,8 @@ interaction HandleChooseWordBtnPress(){
 		// standing on OK
 		if(cursorPosition.row == CHOOSEWORD_UI_MAX_ROWINDEX){
 			userInteraction.updateUI = false;
-			userInteraction.wordChosen = true;
+			// empty words are not accpeted
+			userInteraction.wordChosen = strlen(chosenWord) > 0 ? true : false;
 		}
 		// standing on row of the chosen word or letter chooser
 		else{
@@ -358,6 +388,7 @@ void ChooseWord(){
 	letterSelected = 0;
 	chosenWord[letterSelected] = '\0';
 
+	InitCustomArrows();
 	ReDrawChooseWordUI();
 
 	interaction userInteraction = {.updateUI = false, .wordChosen = false};
@@ -369,21 +400,76 @@ void ChooseWord(){
 	}
 }
 
-void DrawWordToGuessSection(){
-	LCDSendCommand(DD_RAM_ADDR2);
-	int index;
-	for(index = 0; index < strlen(chosenWord); index++)
-		LCDSendChar(strchr(goodGuesses, chosenWord[index]) != NULL ? chosenWord[index] : '_');
+unsigned char BELOW_RIGHT_STATES[56] = { // 7 * 8
+	0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, // 0
+	0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11110, 0b00000, // 1
+	0b01000, 0b01000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11110, 0b00000, // 6
+	0b11000, 0b01000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11110, 0b00000, // 7
+	0b11110, 0b01001, 0b00000, 0b00000, 0b00000, 0b00000, 0b11110, 0b00000, // 8
+	0b11110, 0b01001, 0b10000, 0b10000, 0b00000, 0b00000, 0b11110, 0b00000, // 9
+	0b11110, 0b01001, 0b10100, 0b10100, 0b00010, 0b00000, 0b11110, 0b00000  //10
+};
+
+unsigned char BELOW_LEFT_STATES[40] = { // 5 * 8
+	0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, // 0
+	0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01111, 0b00000, // 1
+	0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01111, 0b00000, // 2
+	0b01001, 0b01010, 0b01000, 0b01000, 0b01000, 0b01000, 0b01111, 0b00000, // 7
+	0b01001, 0b01010, 0b01000, 0b01000, 0b01001, 0b01000, 0b01111, 0b00000  // 9
+};
+
+unsigned char ABOVE_LEFT_STATES[32] = { // 4 * 8
+	0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, // 0
+	0b00000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, // 2
+	0b00000, 0b01000, 0b01010, 0b01100, 0b01000, 0b01000, 0b01000, 0b01000, // 3
+	0b00000, 0b01111, 0b01010, 0b01100, 0b01000, 0b01000, 0b01000, 0b01000  // 4
+};
+
+unsigned char ABOVE_RIGHT_STATES[32] = { // 4 * 8
+	0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, // 0
+	0b00000, 0b11110, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, // 4
+	0b00000, 0b11110, 0b01000, 0b01000, 0b11100, 0b10100, 0b11100, 0b00000, // 5
+	0b00000, 0b11110, 0b01000, 0b01000, 0b11100, 0b10100, 0b11100, 0b01000  // 6
+};
+
+// Describes which version should we use of the four picture-parts when we already have 0, 1, ..., 10 bad guesses.
+// Values are the starting indexes of the currently used picture-part versions in their arrays:
+// BELOW_RIGHT_STATES, BELOW_LEFT_STATES, ABOVE_LEFT_STATES, ABOVE_RIGHT_STATES
+unsigned char STATE_COMBINATIONS[11][4] = {
+	{ 0,  0,  0,  0},
+	{ 8,  8,  0,  0},
+	{ 8, 16,  8,  0},
+	{ 8, 16, 16,  0},
+	{ 8, 16, 24,  8},
+	{ 8, 16, 24, 16},
+	{16, 16, 24, 24},
+	{24, 24, 24, 24},
+	{32, 24, 24, 24},
+	{40, 32, 24, 24},
+	{48, 32, 24, 24}
+};
+
+void HangmanAreaInit(){
+	LCDSendCommand(DD_RAM_ADDR + 14); // top line, penult cell
+	LCDSendChar(2);
+	LCDSendChar(3);
+	LCDSendCommand(DD_RAM_ADDR2 + 14); // bottom line, penult cell
+	LCDSendChar(1);
+	LCDSendChar(0);
 }
 
-void DrawHangmanGrapics(){
-
-}
-
-void ReDrawGuessWordUI(){
-	DrawLetterChooserSection();
-	DrawWordToGuessSection();
-	DrawHangmanGrapics();
+void SetHangmanState(int badGuesses){
+	LCDSendCommand(0x40); // CGRAM
+	// characters with code 0, 1, 2, 3
+	int j;
+	for(j = STATE_COMBINATIONS[badGuesses][0]; j < STATE_COMBINATIONS[badGuesses][0] + 8; j++)
+		LCDSendChar(BELOW_RIGHT_STATES[j]);
+	for(j = STATE_COMBINATIONS[badGuesses][1]; j < STATE_COMBINATIONS[badGuesses][1] + 8; j++)
+		LCDSendChar(BELOW_LEFT_STATES[j]);
+	for(j = STATE_COMBINATIONS[badGuesses][2]; j < STATE_COMBINATIONS[badGuesses][2] + 8; j++)
+		LCDSendChar(ABOVE_LEFT_STATES[j]);
+	for(j = STATE_COMBINATIONS[badGuesses][3]; j < STATE_COMBINATIONS[badGuesses][3] + 8; j++)
+		LCDSendChar(ABOVE_RIGHT_STATES[j]);
 }
 
 /**
@@ -396,6 +482,19 @@ bool WordHasBeenGuessed(){
 			return false;
 	}
 	return true;
+}
+
+void DrawWordToGuessSection(){
+	LCDSendCommand(DD_RAM_ADDR2);
+	int index;
+	for(index = 0; index < strlen(chosenWord); index++)
+		LCDSendChar(strchr(goodGuesses, chosenWord[index]) != NULL ? chosenWord[index] : '_');
+}
+
+void ReDrawGuessWordUI(){
+	DrawLetterChooserSection();
+	DrawWordToGuessSection();
+	SetHangmanState(BadGuesses());
 }
 
 /**
@@ -432,7 +531,7 @@ int findUnSelectedLetterIndex(bool searchRight){
 }
 
 interaction HandleGuessWordBtnPress(){
-	interaction userInteraction;
+	interaction userInteraction = {.updateUI = false, .gameState = GAME_NOT_OVER_YET };
 	int pressedBtn = BUTTON_NONE;
 
 	while((pressedBtn = GetPressedButton()) == BUTTON_NONE)
@@ -454,9 +553,10 @@ interaction HandleGuessWordBtnPress(){
 				chosenChar = 
 					(cursorPosition.col < LINE_CAPACITY_LETTERCHOOSER) ? LETTERS_FIRST[cursorPosition.col - 1] : LETTERS_SECOND[(cursorPosition.col % LINE_CAPACITY_LETTERCHOOSER) - 1];
 				if(strchr(chosenWord, chosenChar) != NULL){
-					goodGuesses[numberOfGuesses++] = chosenChar;
-					goodGuesses[numberOfGuesses] = '\0';
+					goodGuesses[strlen(goodGuesses)] = chosenChar;
+					goodGuesses[strlen(goodGuesses) + 1] = '\0';
 				}
+				numberOfGuesses++;
 				// reason for this (minus one or two) can be found in comment - check findUnSelectedLetterIndex()
 				lettersUsed[cursorPosition.col - (cursorPosition.col < LINE_CAPACITY_LETTERCHOOSER ? 1 : 2)] = true;
 				// shifing cursor to the right to select a letter have not been chosen yet, shifing to the left if this is not possible
@@ -464,14 +564,10 @@ interaction HandleGuessWordBtnPress(){
 				cursorPosition.col = shRightPos == cursorPosition.col ? findUnSelectedLetterIndex(false) : shRightPos;
 				// have to check if all letters (and so the word itself) are guessed - if so game is over with a win
 				// have to check if the game is lost - not won and no more attempts left
-				userInteraction.gameState == WordHasBeenGuessed() ? GAME_OVER_WON : (numberOfGuesses < MAX_GUESS_ATTEMPTS) ? GAME_NOT_OVER_YET : GAME_OVER_LOST;
+				userInteraction.gameState = WordHasBeenGuessed() ? GAME_OVER_WON : ((BadGuesses() < MAX_BAD_GUESS_ATTEMPTS) ? GAME_NOT_OVER_YET : GAME_OVER_LOST);
 				break;
 		}
 		userInteraction.updateUI = true;
-	}
-	else{
-		userInteraction.gameState = GAME_NOT_OVER_YET;
-		userInteraction.updateUI = false;
 	}
 
 	return userInteraction;
@@ -487,6 +583,7 @@ void GuessWord(){
 	while((char)(index + 'A') <= 'Z')
 		lettersUsed[index++] = false;
 
+	HangmanAreaInit();
 	ReDrawGuessWordUI();
 
 	interaction userInteraction = {.updateUI = false, .gameState = GAME_NOT_OVER_YET };
@@ -495,24 +592,49 @@ void GuessWord(){
 		if(userInteraction.updateUI){
 			ReDrawGuessWordUI();
 		}
+		LCDSendCommand(DD_RAM_ADDR2 + 6);
+		LCDSendChar('T');
+		LCDSendChar((char)('0' + numberOfGuesses));
+		LCDSendChar('G');
+		LCDSendChar((char)('0' + strlen(goodGuesses)));
+		LCDSendChar('B');
+		LCDSendChar((char)('0' + BadGuesses()));
 	}
 	gameResult = userInteraction.gameState;
+}
+
+void GameOverScreen(unsigned char* message){
+	LCDSendCommand(CLR_DISP);
+
+	HangmanAreaInit();
+	SetHangmanState(BadGuesses());
+
+	char pressCenterBtn[] = "PRESS CENTER";
+	int index;
+	LCDSendCommand(DD_RAM_ADDR);
+	for(index = 0; index < strlen(message); index++)
+		LCDSendChar(message[index]);
+	LCDSendCommand(DD_RAM_ADDR2);
+	for(index = 0; index < strlen(pressCenterBtn); index++)
+		LCDSendChar(pressCenterBtn[index]);
 }
 
 int main()
 {
 	PortInit();
 	LCDInit();
-	
-	SetDisplayContent("Hangman game", "by Viktor");
-	WaitForBtnPress(BUTTON_CENTER);
 
 	while(1){
+		SetDisplayContent("Hangman game", "by Viktor");
+		WaitForBtnPress(BUTTON_CENTER);
+
 		ChooseWord();
 		SetDisplayContent("Word chosen is:", chosenWord);
 		WaitForBtnPress(BUTTON_CENTER);
+
 		GuessWord();
-		SetDisplayContent("YOU", gameResult == GAME_OVER_WON ? "WON" : "LOST");
+		GameOverScreen(gameResult == GAME_OVER_WON ? "YOU WON" : (gameResult ==  GAME_OVER_LOST ? "YOU LOST" : "WTF"));
+		WaitForBtnPress(BUTTON_CENTER);
 	}
 	
 	return 0;

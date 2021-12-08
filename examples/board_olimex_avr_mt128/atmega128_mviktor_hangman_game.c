@@ -592,13 +592,13 @@ void GuessWord(){
 		if(userInteraction.updateUI){
 			ReDrawGuessWordUI();
 		}
-		LCDSendCommand(DD_RAM_ADDR2 + 6);
-		LCDSendChar('T');
-		LCDSendChar((char)('0' + numberOfGuesses));
-		LCDSendChar('G');
-		LCDSendChar((char)('0' + strlen(goodGuesses)));
-		LCDSendChar('B');
-		LCDSendChar((char)('0' + BadGuesses()));
+		//LCDSendCommand(DD_RAM_ADDR2 + 6);
+		//LCDSendChar('T');
+		//LCDSendChar((char)('0' + numberOfGuesses));
+		//LCDSendChar('G');
+		//LCDSendChar((char)('0' + strlen(goodGuesses)));
+		//LCDSendChar('B');
+		//LCDSendChar((char)('0' + BadGuesses()));
 	}
 	gameResult = userInteraction.gameState;
 }
@@ -633,7 +633,7 @@ int main()
 		WaitForBtnPress(BUTTON_CENTER);
 
 		GuessWord();
-		GameOverScreen(gameResult == GAME_OVER_WON ? "YOU WON" : (gameResult ==  GAME_OVER_LOST ? "YOU LOST" : "WTF"));
+		GameOverScreen(gameResult == GAME_OVER_WON ? "YOU WON" : "YOU LOST");
 		WaitForBtnPress(BUTTON_CENTER);
 	}
 	
